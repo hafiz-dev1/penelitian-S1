@@ -1,0 +1,71 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ===== Virtual environments =====
+venv/
+env/
+.venv/
+.env
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# ===== Testing & coverage =====
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== Project-specific =====
+
+# Datasets (host di GDrive, jangan track)
+Dataset/
+Dataset_Cropped/
+Dataset_Cropped_debug/
+*.zip
+
+# Bobot model & artefak training (>100 MB; host di GitHub Releases)
+checkpoints/
+reports/
+*.pth
+*.pt
+
+# Output crop sementara
+**/_debug/
+**/_qc_review.csv
+
+# Privacy
+**/ttd_*.png
+**/ttd_*.jpg
+
+# Cache LaTeX
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc

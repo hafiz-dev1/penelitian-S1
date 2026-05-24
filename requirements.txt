@@ -1,0 +1,18 @@
+# Local dependencies for all scripts (Windows, i7-9750H + GTX 1650 Max-Q).
+#
+# Step 1: Install PyTorch with CUDA *first* (see below), then:
+#   py -m pip install -r scripts/requirements.txt
+#
+# PyTorch CUDA 12.1 (install separately — pip won't resolve it from here):
+#   py -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 01_auto_crop.py
+opencv-python>=4.8
+numpy>=1.24
+tqdm>=4.65
+
+# 02a/02b/02c per-model training scripts & 03_evaluate_models.py
+scikit-learn>=1.4
+seaborn>=0.13
+matplotlib>=3.8
+pandas>=2.0
