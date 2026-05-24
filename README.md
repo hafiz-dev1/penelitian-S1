@@ -123,5 +123,5 @@ mereproduksi metrik dalam toleransi numerik yang sangat kecil.
 ## Acknowledgments
 
 - **Imam Ekowicaksono, S.Si., M.Si.** selaku Dosen Pembimbing Tugas Akhir.
-- **Hafiz Budi Firmansyah, Ph.D.** & **I Wayan Wiprayoga Wisesa, M.Kom.** selaku Dosen Penguji.
+- **Hafiz Budi Firmansyah, S.Kom., M.Sc., Ph.D.** & **	I Wayan Wiprayoga Wisesa, S.Kom., M.Kom.** selaku Dosen Penguji.
 - Program Studi Teknik Informatika, **Institut Teknologi Sumatera**.
