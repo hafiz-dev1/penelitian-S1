@@ -1,6 +1,6 @@
 """Shared helpers for the binary coffee-bean classification pipeline.
 
-Used by `02_train_models.ipynb` and `03_evaluate_models.ipynb`. Importable
+Used by `04_train_freezing.ipynb` and `05_evaluate_models.ipynb`. Importable
 either directly (when the file lives next to the notebook) or by uploading
 this file to the Colab session and `%run utils.py`.
 
@@ -44,6 +44,28 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 ModelName = Literal["resnet50", "mobilenet_v3_large", "swin_t"]
 MODEL_NAMES: tuple[ModelName, ...] = ("mobilenet_v3_large", "resnet50", "swin_t")
+
+# --- Design-space (reframe Juni 2026): 2 backbone x 2 strategi pelatihan ------
+# Swin-Tiny dikeluarkan dari daftar uji; fokus pada perancangan model dengan
+# eksplorasi backbone CNN dan strategi freezing.
+BACKBONES: tuple[ModelName, ...] = ("mobilenet_v3_large", "resnet50")
+Strategy = Literal["full", "freeze"]
+STRATEGIES: tuple[Strategy, ...] = ("full", "freeze")
+
+
+def make_config_name(backbone: str, strategy: str) -> str:
+    """Nama konfigurasi gabungan, mis. ``resnet50__freeze``.
+
+    Dipakai untuk menamai checkpoint/report agar 4 konfigurasi tidak saling
+    menimpa: ``best_model_<backbone>__<strategy>.pth`` dst.
+    """
+    return f"{backbone}__{strategy}"
+
+
+# Urutan kanonik 4 konfigurasi ruang desain.
+CONFIG_NAMES: tuple[str, ...] = tuple(
+    make_config_name(b, s) for b in BACKBONES for s in STRATEGIES
+)
 
 
 # -----------------------------------------------------------------------------
@@ -275,6 +297,34 @@ def count_total_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def freeze_backbone(model: nn.Module, name: ModelName) -> nn.Module:
+    """Bekukan seluruh backbone (encoder) dan sisakan classifier head.
+
+    Mewujudkan strategi *feature extraction*: bobot pralatih ImageNet pada
+    backbone dipertahankan apa adanya (``requires_grad=False``), hanya lapisan
+    klasifikasi baru yang dilatih. Lawannya adalah *full fine-tuning* (default,
+    tanpa pembekuan). Catatan: pada model klasifikasi hanya ada encoder
+    (backbone) + classifier head -- tidak ada "decoder".
+    """
+    for p in model.parameters():
+        p.requires_grad = False
+
+    if name == "resnet50":
+        head = model.fc
+    elif name == "mobilenet_v3_large":
+        head = model.classifier  # Sequential; hanya Linear yang punya bobot
+    elif name == "swin_t":
+        head = model.head
+    else:
+        raise ValueError(
+            f"Unknown model name: {name!r}. Expected one of {MODEL_NAMES}."
+        )
+
+    for p in head.parameters():
+        p.requires_grad = True
+    return model
+
+
 # -----------------------------------------------------------------------------
 # Training helpers
 # -----------------------------------------------------------------------------
@@ -328,8 +378,17 @@ def train_one_model(
     use_amp: bool,
     ckpt_dir: Path | str,
     report_dir: Path | str,
+    freeze: bool = False,
+    config_name: str | None = None,
 ) -> dict:
     """Train a single model, save best checkpoint, return result dict.
+
+    Parameters tambahan untuk eksperimen ruang desain (reframe Juni 2026):
+    ``freeze`` mengaktifkan strategi *feature extraction* (backbone dibekukan,
+    hanya head dilatih); default ``False`` = *full fine-tuning*. ``config_name``
+    menentukan nama berkas keluaran (mis. ``resnet50__freeze``) agar konfigurasi
+    tidak saling menimpa; jika ``None`` digunakan ``model_name`` (kompatibel
+    dengan perilaku lama).
 
     Parameters
     ----------
@@ -368,17 +427,22 @@ def train_one_model(
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    strategy = "freeze" if freeze else "full"
+    config_name = config_name or model_name
+
     print(f"\n{'=' * 60}")
-    print(f"  TRAINING: {model_name}")
+    print(f"  TRAINING: {config_name}  (backbone={model_name}, strategy={strategy})")
     print(f"{'=' * 60}")
 
     # Seed before model construction (Req 3.6)
     seed_everything(hparams["seed"])
 
     model = build_model(model_name).to(device)
+    if freeze:
+        freeze_backbone(model, model_name)
     criterion = nn.CrossEntropyLoss()
     optimizer = AdamW(
-        model.parameters(),
+        [p for p in model.parameters() if p.requires_grad],
         lr=hparams["learning_rate"],
         weight_decay=hparams["weight_decay"],
     )
@@ -442,10 +506,16 @@ def train_one_model(
     train_secs = time.time() - t0
 
     # --- Save checkpoint (only on successful completion) ---
-    ckpt_path = ckpt_dir / f"best_model_{model_name}.pth"
+    # `model_name` tetap berisi backbone dasar agar build_model() dapat
+    # merekonstruksi arsitektur saat evaluasi; `config_name`/`freeze`/`strategy`
+    # menyimpan informasi strategi pelatihan.
+    ckpt_path = ckpt_dir / f"best_model_{config_name}.pth"
     torch.save(
         {
             "model_name": model_name,
+            "config_name": config_name,
+            "freeze": freeze,
+            "strategy": strategy,
             "state_dict": best_state,
             "best_epoch": best_epoch,
             "best_val_acc": best_val_acc,
@@ -461,26 +531,31 @@ def train_one_model(
 
     # --- Save per-epoch history CSV ---
     hist_df = pd.DataFrame(history)
-    hist_df.to_csv(report_dir / f"history_{model_name}.csv", index=False)
+    hist_df.to_csv(report_dir / f"history_{config_name}.csv", index=False)
 
     # --- Save per-model curves PNG ---
-    curves_path = report_dir / f"curves_{model_name}.png"
+    curves_path = report_dir / f"curves_{config_name}.png"
     save_per_model_curves(hist_df, curves_path)
     print(f"  Saved -> {curves_path}")
 
     # --- Save timing JSON ---
     timing_data = {
         "model_name": model_name,
+        "config_name": config_name,
+        "strategy": strategy,
         "train_secs": train_secs,
         "best_epoch": best_epoch,
         "best_val_acc": best_val_acc,
     }
-    timing_path = report_dir / f"timing_{model_name}.json"
+    timing_path = report_dir / f"timing_{config_name}.json"
     timing_path.write_text(json.dumps(timing_data, indent=2), encoding="utf-8")
     print(f"  Saved -> {timing_path}")
 
     return {
         "model_name": model_name,
+        "config_name": config_name,
+        "strategy": strategy,
+        "freeze": freeze,
         "best_epoch": best_epoch,
         "best_val_acc": best_val_acc,
         "train_secs": train_secs,
@@ -531,17 +606,21 @@ def save_per_model_curves(history_df: pd.DataFrame, save_path: Path | str) -> No
 # -----------------------------------------------------------------------------
 # Visualisation -- comparison curves
 # -----------------------------------------------------------------------------
-def save_comparison_curves(results: dict[str, dict], report_dir) -> None:
-    """Overlay all models on a single 2-panel chart (val loss & val accuracy).
+def save_comparison_curves(results: dict[str, dict], report_dir,
+                           order: tuple[str, ...] | list[str] | None = None) -> None:
+    """Overlay all configurations on a single 2-panel chart (val loss & accuracy).
 
     Parameters
     ----------
     results : dict[str, dict]
-        Mapping of model_name -> result dict. Each result dict must contain
-        a ``"history_df"`` key whose value is a DataFrame with columns
+        Mapping of name -> result dict. Each result dict must contain a
+        ``"history_df"`` key whose value is a DataFrame with columns
         ``epoch``, ``val_loss``, and ``val_acc``.
     report_dir : Path-like
         Directory where ``curves_comparison.png`` will be saved.
+    order : sequence of str, optional
+        Urutan kunci yang diplot. Default ``MODEL_NAMES`` (kompatibel lama);
+        untuk eksperimen ruang desain berikan ``CONFIG_NAMES``.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -551,8 +630,10 @@ def save_comparison_curves(results: dict[str, dict], report_dir) -> None:
     report_dir = Path(report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    keys = order if order is not None else MODEL_NAMES
+
     fig, axes = plt.subplots(1, 2, figsize=(13, 4))
-    for name in MODEL_NAMES:
+    for name in keys:
         if name not in results:
             continue
         df = results[name]["history_df"]
@@ -579,6 +660,11 @@ __all__ = [
     "IMAGENET_STD",
     "MODEL_NAMES",
     "ModelName",
+    "BACKBONES",
+    "STRATEGIES",
+    "Strategy",
+    "CONFIG_NAMES",
+    "make_config_name",
     "seed_everything",
     "get_transforms",
     "TransformSubset",
@@ -586,6 +672,7 @@ __all__ = [
     "build_model",
     "count_trainable_params",
     "count_total_params",
+    "freeze_backbone",
     "run_epoch",
     "train_one_model",
     "save_per_model_curves",
