@@ -1,4 +1,4 @@
-# `scripts/` — Pipeline Perancangan Model Klasifikasi Biji Kopi
+# `scripts/` -- Pipeline Perancangan Model Klasifikasi Biji Kopi
 
 Implementasi PyTorch untuk Tugas Akhir
 *"Perancangan Model CNN Berbasis Transfer Learning untuk Klasifikasi Biner
